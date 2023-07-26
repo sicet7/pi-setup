@@ -1,0 +1,180 @@
+version: "3.8"
+
+# More info at https://github.com/pi-hole/docker-pi-hole/ and https://docs.pi-hole.net/
+services:
+    traefik:
+        container_name: traefik
+        image: traefik:v2.10
+        restart: unless-stopped
+        ports:
+            - "${HOST_IP}:80:80"
+            - "${HOST_IP}:443:443"
+        networks:
+            - services
+        volumes:
+            - /etc/localtime:/etc/localtime:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - .docker/traefik/traefik.yml:/traefik.yml:ro
+            - .docker/certs:/certs
+            - .docker/traefik/configurations:/configurations
+        labels:
+            - "traefik.enable=true"
+            - "traefik.docker.network=services"
+            - "traefik.http.routers.traefik-secure.entrypoints=websecure"
+            - "traefik.http.routers.traefik-secure.rule=Host(`traefik.home`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))"
+            - "traefik.http.routers.traefik-secure.service=api@internal"
+            - "diun.enable=true"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+    pihole:
+        container_name: pihole
+        image: pihole/pihole:latest
+        restart: unless-stopped
+        ports:
+            - "${HOST_IP}:53:53/tcp"
+            - "${HOST_IP}:53:53/udp"
+        networks:
+            - services
+        volumes:
+            - "./data/pihole/etc-pihole:/etc/pihole"
+            - "./data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d"
+        labels:
+            - "traefik.enable=true"
+            - "traefik.docker.network=services"
+            - "traefik.http.routers.pihole-secure.entrypoints=websecure"
+            - "traefik.http.routers.pihole-secure.rule=Host(`pihole.home`)"
+            - "traefik.http.services.pihole-secure.loadbalancer.server.port=80"
+            - "diun.enable=true"
+        secrets:
+            - pihole_password
+        environment:
+            TZ: "Europe/Copenhagen"
+            VIRTUAL_HOST: "pihole.home"
+            PIHOLE_DNS_: "1.1.1.1;8.8.8.8"
+            DNSSEC: "true"
+            IPv6: "true"
+            TEMPERATUREUNIT: "c"
+            QUERY_LOGGING: "true"
+            WEBTHEME: "default-dark"
+            WEBPASSWORD_FILE: "/run/secrets/pihole_password"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+    unifi-controller:
+        container_name: unifi-controller
+        image: lscr.io/linuxserver/unifi-controller:latest
+        restart: unless-stopped
+        ports:
+            - "${HOST_IP}:3478:3478/udp"
+            - "${HOST_IP}:10001:10001/udp"
+            - "${HOST_IP}:8080:8080"
+            - "${HOST_IP}:1900:1900/udp"
+            - "${HOST_IP}:8843:8843"
+            - "${HOST_IP}:8880:8880"
+            - "${HOST_IP}:6789:6789"
+            - "${HOST_IP}:5514:5514/udp"
+        networks:
+            - services
+        volumes:
+            - ./data/unifi-controller:/config
+        labels:
+            - "traefik.enable=true"
+            - "traefik.docker.network=services"
+            - "traefik.http.routers.unifi-secure.entrypoints=websecure"
+            - "traefik.http.routers.unifi-secure.rule=Host(`unifi.home`)"
+            - "traefik.http.services.unifi-secure.loadbalancer.server.port=8443"
+            - "traefik.http.services.unifi-secure.loadbalancer.serverstransport=ignorecert@file"
+            - "traefik.http.services.unifi-secure.loadbalancer.server.scheme=https"
+            - "diun.enable=true"
+        environment:
+            TZ: "Europe/Copenhagen"
+            PUID: "1000"
+            PGID: "1000"
+            MEM_LIMIT: "2048"
+            MEM_STARTUP: "2048"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+
+    wireguard:
+        image: linuxserver/wireguard:latest
+        container_name: wireguard
+        cap_add:
+            - NET_ADMIN
+        volumes:
+            - ./data/wireguard:/config
+        ports:
+            - "51820:51820/udp"
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.wireguard-secure.entrypoints=websecure"
+            - "traefik.http.routers.wireguard-secure.rule=Host(`wireguard.home`)"
+            - "traefik.http.services.wireguard-secure.loadbalancer.server.port=5000"
+            - "diun.enable=true"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+
+    wireguard-ui:
+        image: ngoduykhanh/wireguard-ui:latest
+        container_name: wireguard-ui
+        depends_on:
+            - wireguard
+        cap_add:
+            - NET_ADMIN
+        # use the network of the 'wireguard' service. this enables to show active clients in the status page
+        network_mode: service:wireguard
+        environment:
+            WGUI_USERNAME: "admin"
+            WGUI_PASSWORD: "admin"
+            WGUI_MANAGE_START: "true"
+            WGUI_MANAGE_RESTART: "true"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+        volumes:
+            - ./data/wireguard-ui:/app/db
+            - ./data/wireguard:/etc/wireguard
+
+    diun:
+        container_name: diun
+        image: crazymax/diun:latest
+        restart: unless-stopped
+        command: serve
+        networks:
+            - services
+        volumes:
+            - "./data/diun:/data"
+            - "/var/run/docker.sock:/var/run/docker.sock"
+        environment:
+            TZ: "Europe/Copenhagen"
+            LOG_LEVEL: "info"
+            LOG_JSON: "false"
+            DIUN_WATCH_WORKERS: "10"
+            DIUN_WATCH_SCHEDULE: "0 */6 * * *"
+            DIUN_WATCH_JITTER: "30s"
+            DIUN_PROVIDERS_DOCKER: "true"
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "30m"
+                max-file: "3"
+
+networks:
+    services:
+        driver: bridge
+
+secrets:
+    pihole_password:
+        file: ./.docker/secrets/pihole_password.txt
