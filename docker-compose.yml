@@ -1,6 +1,5 @@
 version: "3.8"
 
-# More info at https://github.com/pi-hole/docker-pi-hole/ and https://docs.pi-hole.net/
 services:
     traefik:
         container_name: traefik
@@ -29,6 +28,7 @@ services:
             options:
                 max-size: "30m"
                 max-file: "3"
+
     pihole:
         container_name: pihole
         image: pihole/pihole:latest
@@ -65,6 +65,7 @@ services:
             options:
                 max-size: "30m"
                 max-file: "3"
+
     unifi-controller:
         container_name: unifi-controller
         image: lscr.io/linuxserver/unifi-controller:latest
@@ -102,50 +103,6 @@ services:
             options:
                 max-size: "30m"
                 max-file: "3"
-
-    wireguard:
-        image: linuxserver/wireguard:latest
-        container_name: wireguard
-        cap_add:
-            - NET_ADMIN
-        volumes:
-            - ./data/wireguard:/config
-        ports:
-            - "51820:51820/udp"
-        labels:
-            - "traefik.enable=true"
-            - "traefik.http.routers.wireguard-secure.entrypoints=websecure"
-            - "traefik.http.routers.wireguard-secure.rule=Host(`wireguard.home`)"
-            - "traefik.http.services.wireguard-secure.loadbalancer.server.port=5000"
-            - "diun.enable=true"
-        logging:
-            driver: "json-file"
-            options:
-                max-size: "30m"
-                max-file: "3"
-
-    wireguard-ui:
-        image: ngoduykhanh/wireguard-ui:latest
-        container_name: wireguard-ui
-        depends_on:
-            - wireguard
-        cap_add:
-            - NET_ADMIN
-        # use the network of the 'wireguard' service. this enables to show active clients in the status page
-        network_mode: service:wireguard
-        environment:
-            WGUI_USERNAME: "admin"
-            WGUI_PASSWORD: "admin"
-            WGUI_MANAGE_START: "true"
-            WGUI_MANAGE_RESTART: "true"
-        logging:
-            driver: "json-file"
-            options:
-                max-size: "30m"
-                max-file: "3"
-        volumes:
-            - ./data/wireguard-ui:/app/db
-            - ./data/wireguard:/etc/wireguard
 
     diun:
         container_name: diun
